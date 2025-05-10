@@ -3,12 +3,14 @@ import threading
 import time
 import random
 import argparse
+from colorama import init, Fore
+init(autoreset=True)
 
 class Node:
     def __init__(self, role, host, port, coordinator_host=None, coordinator_port=None):
         self.role = role
-        self.host = host if isinstance(host, str) else str(host)  # Garante string
-        self.port = int(port)  # Garante inteiro
+        self.host = str(host)
+        self.port = int(port)
         self.coordinator_host = coordinator_host
         self.coordinator_port = coordinator_port
         self.clock = 0
@@ -23,7 +25,7 @@ class Node:
     def start(self):
         self.server_thread.start()
         self.clock_thread.start()
-        print(f"{self.role.capitalize()} iniciado em {self.host}:{self.port}. Hora inicial: {self.clock}")
+        print(Fore.CYAN + f"{self.role.capitalize()} iniciado em {self.host}:{self.port}. Hora inicial: {self.clock}")
 
     def update_clock(self):
         while self.running:
@@ -56,20 +58,28 @@ class Node:
                 _, delta = data.split()
                 delta = int(delta)
                 with self.lock:
-                    print(f"{self.role.capitalize()} [{self.host}:{self.port}] Hora antes do ajuste: {self.clock}")
+                    print(Fore.YELLOW + f"{self.role.capitalize()} [{self.host}:{self.port}] Hora antes do ajuste: {self.clock}")
                     self.clock += delta
-                    print(f"{self.role.capitalize()} [{self.host}:{self.port}] Hora após ajuste: {self.clock}")
+                    print(Fore.GREEN + f"{self.role.capitalize()} [{self.host}:{self.port}] Hora após ajuste: {self.clock}")
                 conn.send(b"Ajuste aplicado.")
+            elif data == "STOP":
+                conn.send(b"Encerrando servidor.")
             else:
                 conn.send(b"Comando invalido.")
 
     def stop(self):
         self.running = False
+        try:
+            with socket.socket() as s:
+                s.connect((self.host, self.port))
+                s.sendall(b"STOP")
+        except:
+            pass
 
 class Coordinator(Node):
     def __init__(self, host, port, clients):
         super().__init__("coordenador", host, port)
-        self.clients = [(h, int(p)) for h, p in (c.split(':') for c in clients)]  # Conversão segura
+        self.clients = [(h, int(p)) for h, p in (c.split(':') for c in clients)]
 
     def handle_connection(self, conn):
         with conn:
@@ -83,7 +93,7 @@ class Coordinator(Node):
     def synchronize_clocks(self):
         with self.lock:
             own_time = self.clock
-        print(f"\nCoordenador [{self.host}:{self.port}] Hora antes do ajuste: {own_time}")
+        print(Fore.MAGENTA + f"\nCoordenador [{self.host}:{self.port}] Hora antes do ajuste: {own_time}")
 
         times = [own_time]
         for client_host, client_port in self.clients:
@@ -94,18 +104,18 @@ class Coordinator(Node):
                     response = s.recv(1024).decode()
                     client_time = int(response)
                     times.append(client_time)
-                    print(f"Coordenador recebeu hora {client_time} de {client_host}:{client_port}")
+                    print(Fore.MAGENTA + f"Coordenador recebeu hora {client_time} de {client_host}:{client_port}")
             except Exception as e:
-                print(f"Erro ao obter hora de {client_host}:{client_port}: {e}")
+                print(Fore.RED + f"Erro ao obter hora de {client_host}:{client_port}: {e}")
 
         average = sum(times) // len(times)
-        print(f"Coordenador calculou a média: {average}")
+        print(Fore.BLUE + f"Coordenador calculou a média: {average}")
 
         # Ajustar próprio relógio
         with self.lock:
             adjustment = average - own_time
             self.clock += adjustment
-        print(f"Coordenador [{self.host}:{self.port}] Hora após ajuste: {self.clock}")
+        print(Fore.GREEN + f"Coordenador [{self.host}:{self.port}] Hora após ajuste: {self.clock}")
 
         # Ajustar clientes
         for (client_host, client_port), client_time in zip(self.clients, times[1:]):
@@ -114,13 +124,13 @@ class Coordinator(Node):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.connect((client_host, client_port))
                     s.sendall(f"ADJUST {adjustment}".encode())
-                    s.recv(1024)  # Confirmação
+                    s.recv(1024)
             except Exception as e:
-                print(f"Erro ao ajustar {client_host}:{client_port}: {e}")
+                print(Fore.RED + f"Erro ao ajustar {client_host}:{client_port}: {e}")
 
 class Client(Node):
     def __init__(self, host, port, coordinator_host, coordinator_port):
-        super().__init__("cliente", host, port, coordinator_host, int(coordinator_port))  # Conversão explícita
+        super().__init__("cliente", host, port, coordinator_host, int(coordinator_port))
 
 def main():
     parser = argparse.ArgumentParser(description="Sincronização de Berkeley")
@@ -139,7 +149,7 @@ def main():
             input("Pressione Enter para iniciar a sincronização...\n")
             node.synchronize_clocks()
         try:
-            while True: 
+            while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             node.stop()
@@ -148,7 +158,7 @@ def main():
         node = Client(args.host, args.port, coordinator_host, coordinator_port)
         node.start()
         try:
-            while True: 
+            while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             node.stop()
