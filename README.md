@@ -35,7 +35,7 @@ source venv/bin/activate
 
 ```powershell
 python -m venv venv
-.env\Scripts\Activate.ps1
+.env\Scripts\Activate.ps1
 ```
 
 ### Windows (CMD)
